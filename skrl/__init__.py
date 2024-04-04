@@ -7,7 +7,7 @@ import numpy as np
 
 
 __all__ = ["__version__", "logger", "config"]
-
+print("This is SKRL Forked ")
 
 # read library version from metadata
 try:
