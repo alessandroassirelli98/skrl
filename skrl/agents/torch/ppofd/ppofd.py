@@ -199,10 +199,11 @@ class PPOFD(Agent):
 
         # create tensors in demonstration memory
         self._demonstration_memory.create_tensor(name="states", size=self.observation_space, dtype=torch.float32)
+        self._demonstration_memory.create_tensor(name="next_states", size=self.observation_space, dtype=torch.float32)
         self._demonstration_memory.create_tensor(name="actions", size=self.action_space, dtype=torch.float32)
         self._demonstration_memory.create_tensor(name="rewards", size=1, dtype=torch.float32)
         self._demonstration_memory.create_tensor(name="terminated", size=1, dtype=torch.bool)
-        self._demonstration_tensors_names = ["states", "actions", "rewards", "terminated"]
+        self._demonstration_tensors_names = ["states", "actions", "rewards", "next_states", "terminated"]
 
         
         # create temporary variables needed for storage and computation
@@ -402,13 +403,24 @@ class PPOFD(Agent):
 
                 # sample from demonstrations
                 batch_size = len(sampled_states)
-                demo_states, demo_actions, _, _ = self._demonstration_memory.sample(names=self._demonstration_tensors_names, batch_size=batch_size)[0]
+                demo_states, demo_actions, demo_rewards, demo_next_states, demo_terminateds = self._demonstration_memory.sample(names=self._demonstration_tensors_names, batch_size=batch_size)[0]
                 demo_states = self._state_preprocessor(demo_states, train=not epoch)
+                demo_values, _, _ = self.value.act({"states": self._state_preprocessor(demo_states)}, role="value")
+                demo_next_values, _, _ = self.value.act({"states": self._state_preprocessor(demo_next_states)}, role="value")
+                # last_values = demo_next_values[-1]
+     
+                # demo_returns, demo_advantage = compute_gae(rewards=demo_rewards,
+                #                                             dones=demo_terminateds,
+                #                                             values=demo_values,
+                #                                             next_values=demo_next_values,
+                #                                             discount_factor=self._discount_factor,
+                                                            # lambda_coefficient=self._lambda)
 
                 _, next_log_prob, _ = self.policy.act({"states": sampled_states, "taken_actions": sampled_actions}, role="policy")
 
                 # compute approximate KL divergence
                 with torch.no_grad():
+                    # I don't know where this calculation comes from
                     ratio = next_log_prob - sampled_log_prob
                     kl_divergence = ((torch.exp(ratio) - 1) - ratio).mean()
                     kl_divergences.append(kl_divergence)
@@ -432,8 +444,9 @@ class PPOFD(Agent):
                 _, demo_log_prob, _ = self.policy.act({"states": demo_states, "taken_actions": demo_actions}, role="policy")
 
                 # decaying weight
-                w = self._lambda_0 * self._lambda_1 ** timestep
-
+                w = self._lambda_0 * self._lambda_1 ** timestep * torch.max(sampled_advantages)
+                
+                # w_tmp = 0 if timestep < 30000 else 1
                 policy_loss = -torch.min(surrogate, surrogate_clipped).mean()
                 policy_loss -= demo_log_prob.mean() * w
 

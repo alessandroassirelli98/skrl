@@ -127,7 +127,7 @@ class SequentialTrainer(Trainer):
                 else:
                     states = next_states
 
-    def eval(self) -> None:
+    def eval(self, replay_actions=None) -> None:
         """Evaluate the agents sequentially
 
         This method executes the following steps in loop:
@@ -148,7 +148,7 @@ class SequentialTrainer(Trainer):
         if self.num_simultaneous_agents == 1:
             # single-agent
             if self.env.num_agents == 1:
-                self.single_agent_eval()
+                self.single_agent_eval(replay_actions)
             # multi-agent
             else:
                 self.multi_agent_eval()
@@ -189,3 +189,4 @@ class SequentialTrainer(Trainer):
                     states, infos = self.env.reset()
                 else:
                     states = next_states
+

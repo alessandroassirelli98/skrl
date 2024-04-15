@@ -203,7 +203,7 @@ class Trainer:
                 else:
                     states = next_states
 
-    def single_agent_eval(self) -> None:
+    def single_agent_eval(self, replay=None) -> None:
         """Evaluate agent
 
         This method executes the following steps in loop:
@@ -224,7 +224,11 @@ class Trainer:
             # compute actions
             with torch.no_grad():
                 actions = self.agents.act(states, timestep=timestep, timesteps=self.timesteps)[0]
+                # actions = self.agents._demonstration_memory._tensor_actions[timestep]
+                
+                # actions = (replay[timestep]).unsqueeze(0)
 
+                # print(timestep)
                 # step the environments
                 next_states, rewards, terminated, truncated, infos = self.env.step(actions)
 
@@ -232,17 +236,17 @@ class Trainer:
                 if not self.headless:
                     self.env.render()
 
-                # write data to TensorBoard
-                self.agents.record_transition(states=states,
-                                              actions=actions,
-                                              rewards=rewards,
-                                              next_states=next_states,
-                                              terminated=terminated,
-                                              truncated=truncated,
-                                              infos=infos,
-                                              timestep=timestep,
-                                              timesteps=self.timesteps)
-                super(type(self.agents), self.agents).post_interaction(timestep=timestep, timesteps=self.timesteps)
+                # # write data to TensorBoard
+                # self.agents.record_transition(states=states,
+                #                               actions=actions,
+                #                               rewards=rewards,
+                #                               next_states=next_states,
+                #                               terminated=terminated,
+                #                               truncated=truncated,
+                #                               infos=infos,
+                #                               timestep=timestep,
+                #                               timesteps=self.timesteps)
+                # super(type(self.agents), self.agents).post_interaction(timestep=timestep, timesteps=self.timesteps)
 
             # reset environments
             if self.env.num_envs > 1:
