@@ -118,24 +118,22 @@ class Pretrainer:
                 # bc_loss = torch.norm(mean_a - a, p=2) # This minimizes the difference, but we want to make the demo actions more likely instead
                 bc_loss = - log_prob.mean()
                 
-                # rtgo, v = self._compute_rtgo(s, r, ns, t)
-                # tdt, v = self._compute_td_error(s, r, ns, t)
-                
-                # tdt = self._agent._value_preprocessor(tdt, train=True)
+                tdt, v = self._compute_td_error(s, r, ns, t)
+                tdt = self._agent._value_preprocessor(tdt, train=True) # Update the preprocessor for value
 
-                # if self._agent._clip_predicted_values:
-                #     v = tdt + torch.clip(v - tdt,
-                #                         min=-self._agent._value_clip,
-                #                         max=self._agent._value_clip)
+                if self._agent._clip_predicted_values:
+                    v = tdt + torch.clip(v - tdt,
+                                        min=-self._agent._value_clip,
+                                        max=self._agent._value_clip)
                 
-                # value_loss = self._agent._value_loss_scale * torch.functional.F.mse_loss(tdt, v)
+                value_loss = self._agent._value_loss_scale * torch.functional.F.mse_loss(tdt, v)*0
 
                 self.optimizer.zero_grad()
-                (bc_loss).backward()
+                (value_loss + bc_loss).backward()
                 self.optimizer.step()
 
                 cumulative_policy_loss += (bc_loss.detach())
-                # self.log_value_loss.append(value_loss)
+                cumulative_value_loss += value_loss.detach()
                 cumulative_std += (torch.exp(self._agent.policy.log_std_parameter.detach()))
                 cumulative_mse += (torch.mean((a - mean_a)**2, dim=0).detach())
 
@@ -143,6 +141,7 @@ class Pretrainer:
             self.log_std.append(cumulative_std / (iter + 1))
             self.log_mse.append(cumulative_mse / (iter + 1))
             self.log_policy_loss.append(epoch_loss)
+            self.log_value_loss.append( cumulative_value_loss / (iter + 1))
 
             # if (epoch_loss < best_loss):
             #     print(f'Saving best model, loss: {epoch_loss[0]}')
@@ -164,13 +163,13 @@ class Pretrainer:
         v_next, _, _ = self._agent.value.act({"states": ns}, role="value")
         v_next = self._agent._value_preprocessor(v_next, inverse=True)
 
-
         v, _, _ = self._agent.value.act({"states": s}, role="value")
+
         # td = reward(s_t,a_t) if s is terminal, 
         # td = reward(s_t,a_t) + gamma * v(s_{t+1}) if s_t not terminal
         # with torch.no_grad():
         tdt = r + self._agent._discount_factor * v_next * not_t
-        return tdt , v 
+        return tdt , v
 
     def _compute_rtgo(self, states, rewards, next_states, terminateds):
         not_t = (~terminateds.clone()).long()
@@ -188,42 +187,43 @@ class Pretrainer:
         return rtgo, v
     
     def test_bc(self):
-        self.test_loss = []
-        replay_action = []
-        for iter in range(len(self.dataset)):
-            s, a, _,_,_ = self.get_batch(self.dataset, [iter])
-            s = self._agent._state_preprocessor(s)
-            with torch.no_grad():
-                _, log_prob, mean_a = self._agent.policy.act({"states": s, "taken_actions": a}, role="policy")
-                mean_a = mean_a["mean_actions"]
-
-
-                bc_loss = (a - mean_a) ** 2
-            # bc_loss = - log_prob.mean()
-            
-            self.test_loss.append(bc_loss)
-            replay_action.append(mean_a)
-
-
-        self.test_loss = torch.stack(self.test_loss)
-        replay_action = torch.stack(replay_action)
-        print(f'Test Mean Loss: {torch.mean(self.test_loss)}')
-        return replay_action
-
         # self.test_loss = []
-        # for iter in range(self.test_len // self.batch_size):
-        #     rnd_indices = torch.randperm(self.test_len)[: self.batch_size]
-        #     s, a, _,_,_ = self.get_batch(self.test_dataset, rnd_indices)
+        # replay_action = []
+        # for iter in range(len(self.test_dataset)):
+        #     s, a, _,_,_ = self.get_batch(self.test_dataset, [iter])
         #     s = self._agent._state_preprocessor(s)
+        #     with torch.no_grad():
+        #         _, log_prob, mean_a = self._agent.policy.act({"states": s, "taken_actions": a}, role="policy")
+        #         mean_a = mean_a["mean_actions"]
 
-        #     _, log_prob, mean_a = self._agent.policy.act({"states": s, "taken_actions": a}, role="policy")
-        #     mean_a = mean_a["mean_actions"]
 
-        #     bc_loss = torch.norm( mean_a - a, p=2)
+        #         bc_loss = (a - mean_a) ** 2
         #     # bc_loss = - log_prob.mean()
             
         #     self.test_loss.append(bc_loss)
+        #     replay_action.append(mean_a)
 
-        # self.test_loss = torch.tensor(self.test_loss)
+
+        # self.test_loss = torch.stack(self.test_loss)
+        # replay_action = torch.stack(replay_action)
         # print(f'Test Mean Loss: {torch.mean(self.test_loss)}')
+        # return replay_action
+
+        self.test_loss = []
+        for iter in range(self.test_len // self.batch_size):
+            rnd_indices = torch.randperm(self.test_len)[: self.batch_size]
+            s, a, _,_,_ = self.get_batch(self.test_dataset, rnd_indices)
+            s = self._agent._state_preprocessor(s)
+
+            _, log_prob, mean_a = self._agent.policy.act({"states": s, "taken_actions": a}, role="policy")
+            mean_a = mean_a["mean_actions"]
+
+            bc_loss = torch.mean((mean_a - a)**2).detach()
+            # bc_loss = - log_prob.mean()
+            
+            self.test_loss.append(bc_loss)
+
+        self.test_loss = torch.tensor(self.test_loss)
+        print(f'Test Mean Loss: {torch.mean(self.test_loss)}')
+        return 0
 

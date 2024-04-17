@@ -25,7 +25,7 @@ PPOFD_DEFAULT_CONFIG = {
     "lambda": 0.95,                 # TD(lambda) coefficient (lam) for computing returns and advantages
 
     "lambda_0": 10,           # Lambda0 in DAPG paper
-    "lambda_1": 0.999,  # Lambda1 in DAPG paper
+    "lambda_1": 0.9995,  # Lambda1 in DAPG paper
 
     "learning_rate": 1e-3,                  # learning rate
     "learning_rate_scheduler": None,        # learning rate scheduler class (see torch.optim.lr_scheduler)
@@ -444,11 +444,11 @@ class PPOFD(Agent):
                 _, demo_log_prob, _ = self.policy.act({"states": demo_states, "taken_actions": demo_actions}, role="policy")
 
                 # decaying weight
-                w = self._lambda_0 * self._lambda_1 ** timestep * torch.max(sampled_advantages)
+                # w = self._lambda_0 * self._lambda_1 ** timestep * torch.max(sampled_advantages)
                 
                 # w_tmp = 0 if timestep < 30000 else 1
                 policy_loss = -torch.min(surrogate, surrogate_clipped).mean()
-                policy_loss -= demo_log_prob.mean() * w
+                # policy_loss -= demo_log_prob.mean() * w
 
                 # compute value loss
                 predicted_values, _, _ = self.value.act({"states": sampled_states}, role="value")
@@ -483,7 +483,7 @@ class PPOFD(Agent):
                     self.scheduler.step()
 
         # record data
-        self.track_data("BC weighting", w)
+        # self.track_data("BC weighting", w)
         self.track_data("Loss / Policy loss", cumulative_policy_loss / (self._learning_epochs * self._mini_batches))
         self.track_data("Loss / Value loss", cumulative_value_loss / (self._learning_epochs * self._mini_batches))
         if self._entropy_loss_scale:
