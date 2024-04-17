@@ -236,17 +236,17 @@ class Trainer:
                 if not self.headless:
                     self.env.render()
 
-                # # write data to TensorBoard
-                # self.agents.record_transition(states=states,
-                #                               actions=actions,
-                #                               rewards=rewards,
-                #                               next_states=next_states,
-                #                               terminated=terminated,
-                #                               truncated=truncated,
-                #                               infos=infos,
-                #                               timestep=timestep,
-                #                               timesteps=self.timesteps)
-                # super(type(self.agents), self.agents).post_interaction(timestep=timestep, timesteps=self.timesteps)
+                # write data to TensorBoard
+                self.agents.record_transition(states=states,
+                                              actions=actions,
+                                              rewards=rewards,
+                                              next_states=next_states,
+                                              terminated=terminated,
+                                              truncated=truncated,
+                                              infos=infos,
+                                              timestep=timestep,
+                                              timesteps=self.timesteps)
+                super(type(self.agents), self.agents).post_interaction(timestep=timestep, timesteps=self.timesteps)
 
             # reset environments
             if self.env.num_envs > 1:
