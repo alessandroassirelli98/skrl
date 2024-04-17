@@ -126,7 +126,7 @@ class Pretrainer:
                                         min=-self._agent._value_clip,
                                         max=self._agent._value_clip)
                 
-                value_loss = self._agent._value_loss_scale * torch.functional.F.mse_loss(tdt, v)*0
+                value_loss = self._agent._value_loss_scale * torch.functional.F.mse_loss(tdt, v)
 
                 self.optimizer.zero_grad()
                 (value_loss + bc_loss).backward()

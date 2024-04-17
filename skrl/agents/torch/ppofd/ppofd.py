@@ -390,6 +390,7 @@ class PPOFD(Agent):
         cumulative_policy_loss = 0
         cumulative_entropy_loss = 0
         cumulative_value_loss = 0
+        cumulative_std_mean = 0
 
         # learning epochs
         for epoch in range(self._learning_epochs):
@@ -472,6 +473,7 @@ class PPOFD(Agent):
                 # update cumulative losses
                 cumulative_policy_loss += policy_loss.item()
                 cumulative_value_loss += value_loss.item()
+                cumulative_std_mean += torch.exp(self.policy.log_std_parameter.detach()).mean().item()
                 if self._entropy_loss_scale:
                     cumulative_entropy_loss += entropy_loss.item()
 
@@ -489,7 +491,7 @@ class PPOFD(Agent):
         if self._entropy_loss_scale:
             self.track_data("Loss / Entropy loss", cumulative_entropy_loss / (self._learning_epochs * self._mini_batches))
 
-        self.track_data("Policy / Standard deviation", self.policy.distribution(role="policy").stddev.mean().item())
+        self.track_data("Policy / Standard deviations", cumulative_std_mean / (self._learning_epochs * self._mini_batches))
 
         if self._learning_rate_scheduler:
             self.track_data("Learning / Learning rate", self.scheduler.get_last_lr()[0])
