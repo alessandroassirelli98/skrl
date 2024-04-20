@@ -132,7 +132,7 @@ class Pretrainer:
                 rtgo, v = self._compute_rtgo(s, r, ns, t)
                 rtgo = self._agent._value_preprocessor(rtgo, train=not epoch) # Update the preprocessor for value
                 
-                value_loss = self._agent._value_loss_scale * torch.functional.F.mse_loss(rtgo, v)
+                value_loss = self._agent._value_loss_scale * torch.functional.F.mse_loss(rtgo, v) *0
 
                 self.optimizer.zero_grad()
                 (value_loss + bc_loss).backward()
