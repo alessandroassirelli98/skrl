@@ -445,7 +445,7 @@ class PPOFD(Agent):
                 _, demo_log_prob, _ = self.policy.act({"states": demo_states, "taken_actions": demo_actions}, role="policy")
 
                 # decaying weight
-                # w = self._lambda_0 * self._lambda_1 ** timestep * torch.max(sampled_advantages)
+                # w = (self._lambda_0 * self._lambda_1 ** timestep * torch.max(sampled_advantages)).item()
                 
                 # w_tmp = 0 if timestep < 30000 else 1
                 policy_loss = -torch.min(surrogate, surrogate_clipped).mean()
