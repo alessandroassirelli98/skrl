@@ -125,14 +125,14 @@ class Pretrainer:
                 _, log_prob, mean_a = self._agent.policy.act({"states": s, "taken_actions": a}, role="policy")
                 mean_a = mean_a["mean_actions"]
 
-                # bc_loss = torch.norm(mean_a - a, p=2) # This minimizes the difference, but we want to make the demo actions more likely instead
-                bc_loss = - log_prob.mean()
+                bc_loss = torch.mean((mean_a - a)**2) # This minimizes the difference, but we want to make the demo actions more likely instead
+                # bc_loss = - log_prob.mean()
                 
                 # tdt, v = self._compute_td_error(s, r, ns, t)
                 rtgo, v = self._compute_rtgo(s, r, ns, t)
                 rtgo = self._agent._value_preprocessor(rtgo, train=not epoch) # Update the preprocessor for value
                 
-                value_loss = self._agent._value_loss_scale * torch.functional.F.mse_loss(rtgo, v) *0
+                value_loss = self._agent._value_loss_scale * torch.functional.F.mse_loss(rtgo, v)
 
                 self.optimizer.zero_grad()
                 (value_loss + bc_loss).backward()

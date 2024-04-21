@@ -448,7 +448,7 @@ class PPOFD(Agent):
                 # w = (self._lambda_0 * self._lambda_1 ** timestep * torch.max(sampled_advantages)).item()
                 
                 # w_tmp = 0 if timestep < 30000 else 1
-                policy_loss = -torch.min(surrogate, surrogate_clipped).mean()
+                policy_loss = -torch.min(surrogate, surrogate_clipped).mean() *0
                 # policy_loss -= demo_log_prob.mean() * w
 
                 # compute value loss
