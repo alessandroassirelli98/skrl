@@ -189,4 +189,3 @@ class SequentialTrainer(Trainer):
                     states, infos = self.env.reset()
                 else:
                     states = next_states
-

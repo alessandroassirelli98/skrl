@@ -71,7 +71,7 @@ class PPOFD(Agent):
     def __init__(self,
                  models: Mapping[str, Model],
                  memory: Optional[Union[Memory, Tuple[Memory]]] = None,
-                 demonstration_memory: Memory = None, 
+                 demonstration_memory: Memory = None,
                  observation_space: Optional[Union[int, Tuple[int], gym.Space, gymnasium.Space]] = None,
                  action_space: Optional[Union[int, Tuple[int], gym.Space, gymnasium.Space]] = None,
                  device: Optional[Union[str, torch.device]] = None,
@@ -106,7 +106,7 @@ class PPOFD(Agent):
                          action_space=action_space,
                          device=device,
                          cfg=_cfg)
-        
+
         # memory to hold demonstrations
         self._demonstration_memory = demonstration_memory
 
@@ -205,7 +205,7 @@ class PPOFD(Agent):
         self._demonstration_memory.create_tensor(name="terminated", size=1, dtype=torch.bool)
         self._demonstration_tensors_names = ["states", "actions", "rewards", "next_states", "terminated"]
 
-        
+
         # create temporary variables needed for storage and computation
         self._current_log_prob = None
         self._current_next_states = None
@@ -409,7 +409,7 @@ class PPOFD(Agent):
                 demo_values, _, _ = self.value.act({"states": self._state_preprocessor(demo_states)}, role="value")
                 demo_next_values, _, _ = self.value.act({"states": self._state_preprocessor(demo_next_states)}, role="value")
                 # last_values = demo_next_values[-1]
-     
+
                 # demo_returns, demo_advantage = compute_gae(rewards=demo_rewards,
                 #                                             dones=demo_terminateds,
                 #                                             values=demo_values,
@@ -446,7 +446,7 @@ class PPOFD(Agent):
 
                 # decaying weight
                 # w = (self._lambda_0 * self._lambda_1 ** timestep * torch.max(sampled_advantages)).item()
-                
+
                 # w_tmp = 0 if timestep < 30000 else 1
                 policy_loss = -torch.min(surrogate, surrogate_clipped).mean()
                 # policy_loss -= demo_log_prob.mean() * w
