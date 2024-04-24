@@ -100,8 +100,8 @@ class Pretrainer:
         for epoch in range(self.epochs):
             print(f'Epoch: {epoch}/{self.epochs}')
             iter_range = self.train_len // self.batch_size
-            cumulative_mse = torch.zeros(22, device=self._agent.device)
-            cumulative_std = torch.zeros(22, device=self._agent.device)
+            cumulative_mse = torch.zeros(self._agent.policy.num_actions, device=self._agent.device)
+            cumulative_std = torch.zeros(self._agent.policy.num_actions, device=self._agent.device)
             cumulative_policy_loss = torch.zeros(1, device=self._agent.device)
             cumulative_value_loss = torch.zeros(1, device=self._agent.device)
             for iter in range(iter_range):
@@ -178,6 +178,8 @@ class Pretrainer:
         """
         self.test_policy_loss = []
         self.test_value_loss = []
+        value_loss = 0.
+        bc_loss = 0.
         iter_range = self.test_len // self.batch_size
         for iter in range(iter_range):
             rnd_indices = torch.arange(iter * self.batch_size, (iter + 1) * self.batch_size, dtype=int)
@@ -188,11 +190,14 @@ class Pretrainer:
             _, log_prob, mean_a = self._agent.policy.act({"states": s, "taken_actions": a}, role="policy")
             mean_a = mean_a["mean_actions"]
             bc_loss = torch.mean((mean_a - a)**2).detach()
-            rtgo, v = self._compute_rtgo(s, r, ns, t)
-            rtgo = self._agent._value_preprocessor(rtgo)
-            value_loss = self._agent._value_loss_scale * torch.functional.F.mse_loss(rtgo, v)
+
+            if self.train_value:
+                    rtgo, v = self._compute_rtgo(s, r, ns, t)
+                    rtgo = self._agent._value_preprocessor(rtgo)
+                    value_loss = self._agent._value_loss_scale * torch.functional.F.mse_loss(rtgo, v)
+
             self.test_policy_loss.append(bc_loss)
-            self.test_value_loss.append(value_loss)
+            self.test_value_loss.append(value_loss.detach() if self.train_value else value_loss)
         self.test_policy_loss = torch.tensor(self.test_policy_loss)
         self.test_value_loss = torch.tensor(self.test_value_loss)
         print(f'Test Mean Loss: {torch.mean(self.test_policy_loss)}')
