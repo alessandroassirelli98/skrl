@@ -230,6 +230,7 @@ class Agent:
                     modules[name] = self.checkpoint_best_modules["modules"][name]
                 torch.save(modules, os.path.join(self.experiment_dir, "checkpoints", "best_agent.pt"))
             self.checkpoint_best_modules["saved"] = True
+            print(f'Saved best model at iteration: {timestep}')
 
     def act(self,
             states: torch.Tensor,

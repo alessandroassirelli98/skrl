@@ -24,8 +24,8 @@ PPOFD_DEFAULT_CONFIG = {
     "discount_factor": 0.99,        # discount factor (gamma)
     "lambda": 0.95,                 # TD(lambda) coefficient (lam) for computing returns and advantages
 
-    "lambda_0": 10,           # Lambda0 in DAPG paper
-    "lambda_1": 0.9995,  # Lambda1 in DAPG paper
+    "lambda_0": 0.1,           # Lambda0 in DAPG paper
+    "lambda_1": 0.99,  # Lambda1 in DAPG paper
 
     "learning_rate": 1e-3,                  # learning rate
     "learning_rate_scheduler": None,        # learning rate scheduler class (see torch.optim.lr_scheduler)
@@ -406,16 +406,6 @@ class PPOFD(Agent):
                 batch_size = len(sampled_states)
                 demo_states, demo_actions, demo_rewards, demo_next_states, demo_terminateds = self._demonstration_memory.sample(names=self._demonstration_tensors_names, batch_size=batch_size)[0]
                 demo_states = self._state_preprocessor(demo_states, train=not epoch)
-                demo_values, _, _ = self.value.act({"states": self._state_preprocessor(demo_states)}, role="value")
-                demo_next_values, _, _ = self.value.act({"states": self._state_preprocessor(demo_next_states)}, role="value")
-                # last_values = demo_next_values[-1]
-
-                # demo_returns, demo_advantage = compute_gae(rewards=demo_rewards,
-                #                                             dones=demo_terminateds,
-                #                                             values=demo_values,
-                #                                             next_values=demo_next_values,
-                #                                             discount_factor=self._discount_factor,
-                                                            # lambda_coefficient=self._lambda)
 
                 _, next_log_prob, _ = self.policy.act({"states": sampled_states, "taken_actions": sampled_actions}, role="policy")
 
@@ -436,20 +426,21 @@ class PPOFD(Agent):
                 else:
                     entropy_loss = 0
 
-                # compute policy loss
-                ratio = torch.exp(next_log_prob - sampled_log_prob)
-                surrogate = sampled_advantages * ratio
-                surrogate_clipped = sampled_advantages * torch.clip(ratio, 1.0 - self._ratio_clip, 1.0 + self._ratio_clip)
-
                 # bc loss
-                _, demo_log_prob, _ = self.policy.act({"states": demo_states, "taken_actions": demo_actions}, role="policy")
+                _, demo_log_prob, out = self.policy.act({"states": demo_states, "taken_actions": demo_actions}, role="policy")
+                mean_a = out["mean_actions"]
 
                 # decaying weight
-                # w = (self._lambda_0 * self._lambda_1 ** timestep * torch.max(sampled_advantages)).item()
-
+                w = (self._lambda_0 * self._lambda_1 ** timestep * torch.max(sampled_advantages)).item() * 0
                 # w_tmp = 0 if timestep < 30000 else 1
+                bc_util = - torch.mean((mean_a - demo_actions) ** 2) * w
+
+                # compute policy loss
+                ratio = torch.exp(next_log_prob - sampled_log_prob)
+                surrogate = sampled_advantages * ratio + bc_util
+                surrogate_clipped = sampled_advantages * torch.clip(ratio, 1.0 - self._ratio_clip, 1.0 + self._ratio_clip)
+
                 policy_loss = -torch.min(surrogate, surrogate_clipped).mean()
-                # policy_loss -= demo_log_prob.mean() * w
 
                 # compute value loss
                 predicted_values, _, _ = self.value.act({"states": sampled_states}, role="value")
@@ -485,7 +476,7 @@ class PPOFD(Agent):
                     self.scheduler.step()
 
         # record data
-        # self.track_data("BC weighting", w)
+        self.track_data("BC weighting", w)
         self.track_data("Loss / Policy loss", cumulative_policy_loss / (self._learning_epochs * self._mini_batches))
         self.track_data("Loss / Value loss", cumulative_value_loss / (self._learning_epochs * self._mini_batches))
         if self._entropy_loss_scale:
