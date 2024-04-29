@@ -8,6 +8,7 @@ import gymnasium
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import random
 
 from skrl.agents.torch import Agent
 from skrl.memories.torch import Memory
@@ -17,6 +18,13 @@ from skrl.resources.schedulers.torch import KLAdaptiveLR
 
 # [start-config-dict-torch]
 PPOFD_DEFAULT_CONFIG = {
+    "pretrain" : False,             # Wether to pretrain or not
+    "pretrainer_epochs" : 100,
+    "pretrainer_lr" : 1e-3,
+
+    "checkpoint": None,
+    "test": False,                  # Use the algorithm in test mode
+
     "rollouts": 16,                 # number of rollouts before updating
     "learning_epochs": 8,           # number of learning epochs during each update
     "mini_batches": 2,              # number of mini batches during each learning epoch
@@ -24,8 +32,8 @@ PPOFD_DEFAULT_CONFIG = {
     "discount_factor": 0.99,        # discount factor (gamma)
     "lambda": 0.95,                 # TD(lambda) coefficient (lam) for computing returns and advantages
 
-    "lambda_0": 0.1,           # Lambda0 in DAPG paper
-    "lambda_1": 0.99,  # Lambda1 in DAPG paper
+    "lambda_0": 0.,           # Lambda0 in DAPG paper
+    "lambda_1": 0.999,  # Lambda1 in DAPG paper
 
     "learning_rate": 1e-3,                  # learning rate
     "learning_rate_scheduler": None,        # learning rate scheduler class (see torch.optim.lr_scheduler)
@@ -72,6 +80,7 @@ class PPOFD(Agent):
                  models: Mapping[str, Model],
                  memory: Optional[Union[Memory, Tuple[Memory]]] = None,
                  demonstration_memory: Memory = None,
+                 sampling_demo_memory: Memory = None,
                  observation_space: Optional[Union[int, Tuple[int], gym.Space, gymnasium.Space]] = None,
                  action_space: Optional[Union[int, Tuple[int], gym.Space, gymnasium.Space]] = None,
                  device: Optional[Union[str, torch.device]] = None,
@@ -109,6 +118,8 @@ class PPOFD(Agent):
 
         # memory to hold demonstrations
         self._demonstration_memory = demonstration_memory
+        self.sampling_demo_memory = sampling_demo_memory
+        self._old_policy = None
 
         # models
         self.policy = self.models.get("policy", None)
@@ -185,14 +196,15 @@ class PPOFD(Agent):
 
         # create tensors in memory
         if self.memory is not None:
-            self.memory.create_tensor(name="states", size=self.observation_space, dtype=torch.float32)
-            self.memory.create_tensor(name="actions", size=self.action_space, dtype=torch.float32)
-            self.memory.create_tensor(name="rewards", size=1, dtype=torch.float32)
-            self.memory.create_tensor(name="terminated", size=1, dtype=torch.bool)
-            self.memory.create_tensor(name="log_prob", size=1, dtype=torch.float32)
-            self.memory.create_tensor(name="values", size=1, dtype=torch.float32)
-            self.memory.create_tensor(name="returns", size=1, dtype=torch.float32)
-            self.memory.create_tensor(name="advantages", size=1, dtype=torch.float32)
+            for memory in [self.memory, self.sampling_demo_memory]:
+                memory.create_tensor(name="states", size=self.observation_space, dtype=torch.float32)
+                memory.create_tensor(name="actions", size=self.action_space, dtype=torch.float32)
+                memory.create_tensor(name="rewards", size=1, dtype=torch.float32)
+                memory.create_tensor(name="terminated", size=1, dtype=torch.bool)
+                memory.create_tensor(name="log_prob", size=1, dtype=torch.float32)
+                memory.create_tensor(name="values", size=1, dtype=torch.float32)
+                memory.create_tensor(name="returns", size=1, dtype=torch.float32)
+                memory.create_tensor(name="advantages", size=1, dtype=torch.float32)
 
             # tensors sampled during training
             self._tensors_names = ["states", "actions", "log_prob", "values", "returns", "advantages"]
@@ -307,14 +319,54 @@ class PPOFD(Agent):
         :param timesteps: Number of timesteps
         :type timesteps: int
         """
+        # self.eps = (self._lambda_0 * self._lambda_1 ** timestep)
         self._rollout += 1
         if not self._rollout % self._rollouts and timestep >= self._learning_starts:
+            # if torch.rand(1) < self.eps:
+            #     self.which_memory = self.sampling_demo_memory
+            #     self._fill_sampling_demo_memory (timestep, timesteps)
+            # else:
+
             self.set_mode("train")
             self._update(timestep, timesteps)
             self.set_mode("eval")
 
         # write tracking data and checkpoints
         super().post_interaction(timestep, timesteps)
+
+    # def _fill_sampling_demo_memory(self, timestep, timesteps):
+    #     n_envs = self.memory._tensor_states.shape[1]
+    #     max = self._demonstration_memory.memory_size - self.memory.memory_size
+    #     starting_point = random.randint(0, max)
+    #     for i in range(self.memory.memory_size):
+    #         sample = self._demonstration_memory.sample_by_index(self._demonstration_tensors_names, [starting_point + i])[0]
+    #         with torch.no_grad():
+    #             ds = sample[0].repeat(n_envs, 1)
+    #             da = sample[1].repeat(n_envs, 1)
+    #             dr = sample[2].repeat(n_envs, 1)
+    #             dns = sample[3].repeat(n_envs, 1)
+    #             dt = sample[4].repeat(n_envs, 1)
+
+    #             self._current_next_states = dns
+
+    #             # reward shaping
+    #             if self._rewards_shaper is not None:
+    #                 rewards = self._rewards_shaper(dr, timestep, timesteps)
+
+    #             # compute values
+    #             values, _, _ = self.value.act({"states": self._state_preprocessor(ds)}, role="value")
+    #             values = self._value_preprocessor(values, inverse=True)
+
+    #             # Compute log prob for the demonstrated action
+    #             _, d_log_prob, _ = self.policy.act({"states":ds, "taken_actions": da}, role="policy")
+
+    #             # time-limit (truncation) boostrapping
+    #             if self._time_limit_bootstrap:
+    #                 rewards += self._discount_factor * values * dt
+
+    #             # storage transition in memory
+    #             self.sampling_demo_memory.add_samples(states=ds, actions=da, rewards=dr, next_states=dns,
+    #                                     terminated=dt, truncated=dt, log_prob=d_log_prob, values=values)
 
     def _update(self, timestep: int, timesteps: int) -> None:
         """Algorithm's main update step
@@ -391,6 +443,7 @@ class PPOFD(Agent):
         cumulative_entropy_loss = 0
         cumulative_value_loss = 0
         cumulative_std_mean = 0
+        cumulative_advantage_mean = 0
 
         # learning epochs
         for epoch in range(self._learning_epochs):
@@ -399,13 +452,8 @@ class PPOFD(Agent):
             # sample a batch from memory
 
             # mini-batches loop
-            for sampled_states, sampled_actions, sampled_log_prob, sampled_values, sampled_returns, sampled_advantages in sampled_batches:
+            for i, (sampled_states, sampled_actions, sampled_log_prob, sampled_values, sampled_returns, sampled_advantages) in enumerate(sampled_batches):
                 sampled_states = self._state_preprocessor(sampled_states, train=not epoch)
-
-                # sample from demonstrations
-                batch_size = len(sampled_states)
-                demo_states, demo_actions, demo_rewards, demo_next_states, demo_terminateds = self._demonstration_memory.sample(names=self._demonstration_tensors_names, batch_size=batch_size)[0]
-                demo_states = self._state_preprocessor(demo_states, train=not epoch)
 
                 _, next_log_prob, _ = self.policy.act({"states": sampled_states, "taken_actions": sampled_actions}, role="policy")
 
@@ -426,21 +474,24 @@ class PPOFD(Agent):
                 else:
                     entropy_loss = 0
 
-                # bc loss
-                _, demo_log_prob, out = self.policy.act({"states": demo_states, "taken_actions": demo_actions}, role="policy")
-                mean_a = out["mean_actions"]
-
-                # decaying weight
-                w = (self._lambda_0 * self._lambda_1 ** timestep * torch.max(sampled_advantages)).item() * 0
-                # w_tmp = 0 if timestep < 30000 else 1
-                bc_util = - torch.mean((mean_a - demo_actions) ** 2) * w
-
                 # compute policy loss
-                ratio = torch.exp(next_log_prob - sampled_log_prob)
-                surrogate = sampled_advantages * ratio + bc_util
-                surrogate_clipped = sampled_advantages * torch.clip(ratio, 1.0 - self._ratio_clip, 1.0 + self._ratio_clip)
+                ratio_1 = torch.exp(next_log_prob - sampled_log_prob)
+                surrogate_1 = sampled_advantages * ratio_1
+                surrogate_1_clipped = sampled_advantages * torch.clip(ratio_1, 1.0 - self._ratio_clip, 1.0 + self._ratio_clip)
+                policy_loss_1 = -torch.min(surrogate_1, surrogate_1_clipped).mean()
 
-                policy_loss = -torch.min(surrogate, surrogate_clipped).mean()
+
+                # # Loss on demonstrations
+                ds, da, _, _, _ = self._demonstration_memory.sample(names=self._demonstration_tensors_names, batch_size=len(sampled_states))[0]
+                ds = self._state_preprocessor(ds)
+                with torch.no_grad():
+                    _, demo_log_prob, out = self.policy.act({"states":ds, "taken_actions": da}, role="policy")
+            
+                # compute policy loss
+                w = self._lambda_0 * self._lambda_1 ** timestep
+                policy_loss_2 = - demo_log_prob.mean() * w * torch.max(sampled_advantages)
+
+                policy_loss =  policy_loss_1 + policy_loss_2
 
                 # compute value loss
                 predicted_values, _, _ = self.value.act({"states": sampled_states}, role="value")
@@ -465,6 +516,7 @@ class PPOFD(Agent):
                 cumulative_policy_loss += policy_loss.item()
                 cumulative_value_loss += value_loss.item()
                 cumulative_std_mean += torch.exp(self.policy.log_std_parameter.detach()).mean().item()
+                cumulative_advantage_mean += torch.mean(sampled_advantages).item()
                 if self._entropy_loss_scale:
                     cumulative_entropy_loss += entropy_loss.item()
 
@@ -477,6 +529,7 @@ class PPOFD(Agent):
 
         # record data
         self.track_data("BC weighting", w)
+        self.track_data("Mean advantage", cumulative_advantage_mean / (self._learning_epochs * self._mini_batches))
         self.track_data("Loss / Policy loss", cumulative_policy_loss / (self._learning_epochs * self._mini_batches))
         self.track_data("Loss / Value loss", cumulative_value_loss / (self._learning_epochs * self._mini_batches))
         if self._entropy_loss_scale:
