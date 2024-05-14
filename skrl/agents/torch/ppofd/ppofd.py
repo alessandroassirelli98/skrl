@@ -22,6 +22,8 @@ PPOFD_DEFAULT_CONFIG = {
     "pretrainer_epochs" : 100,
     "pretrainer_lr" : 1e-3,
 
+    "nn_type": "shared",
+
     "checkpoint": None,
     "test": False,                  # Use the algorithm in test mode
 
@@ -442,8 +444,9 @@ class PPOFD(Agent):
         cumulative_policy_loss = 0
         cumulative_entropy_loss = 0
         cumulative_value_loss = 0
-        cumulative_std_mean = 0
+        cumulative_entropy_mean = 0
         cumulative_advantage_mean = 0
+        w = 0
 
         # learning epochs
         for epoch in range(self._learning_epochs):
@@ -482,14 +485,18 @@ class PPOFD(Agent):
 
 
                 # # Loss on demonstrations
-                ds, da, _, _, _ = self._demonstration_memory.sample(names=self._demonstration_tensors_names, batch_size=len(sampled_states))[0]
-                ds = self._state_preprocessor(ds)
-                with torch.no_grad():
-                    _, demo_log_prob, out = self.policy.act({"states":ds, "taken_actions": da}, role="policy")
-            
-                # compute policy loss
-                w = self._lambda_0 * self._lambda_1 ** timestep
-                policy_loss_2 = - demo_log_prob.mean() * w * torch.max(sampled_advantages)
+                if self._lambda_0 > 0.:
+                    ds, da, _, _, _ = self._demonstration_memory.sample(names=self._demonstration_tensors_names, batch_size=len(sampled_states))[0]
+                    ds = self._state_preprocessor(ds)
+                    with torch.no_grad():
+                        _, demo_log_prob, out = self.policy.act({"states":ds, "taken_actions": da}, role="policy")
+                
+                    # compute policy loss
+                    w = self._lambda_0 * self._lambda_1 ** timestep
+                    policy_loss_2 = - demo_log_prob.mean() * w * torch.max(sampled_advantages)
+                else:
+                    w = 0.
+                    policy_loss_2 = 0.
 
                 policy_loss =  policy_loss_1 + policy_loss_2
 
@@ -515,7 +522,7 @@ class PPOFD(Agent):
                 # update cumulative losses
                 cumulative_policy_loss += policy_loss.item()
                 cumulative_value_loss += value_loss.item()
-                cumulative_std_mean += torch.exp(self.policy.log_std_parameter.detach()).mean().item()
+                cumulative_entropy_mean += self.policy.get_entropy(role="policy").mean().item()
                 cumulative_advantage_mean += torch.mean(sampled_advantages).item()
                 if self._entropy_loss_scale:
                     cumulative_entropy_loss += entropy_loss.item()
@@ -535,7 +542,7 @@ class PPOFD(Agent):
         if self._entropy_loss_scale:
             self.track_data("Loss / Entropy loss", cumulative_entropy_loss / (self._learning_epochs * self._mini_batches))
 
-        self.track_data("Policy / Standard deviations", cumulative_std_mean / (self._learning_epochs * self._mini_batches))
+        self.track_data("Policy / Entropy", cumulative_entropy_mean / (self._learning_epochs * self._mini_batches))
 
         if self._learning_rate_scheduler:
             self.track_data("Learning / Learning rate", self.scheduler.get_last_lr()[0])
