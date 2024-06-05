@@ -2,7 +2,8 @@ import itertools
 
 import torch
 import torch.nn as nn
-
+import random
+import copy
 
 class Pretrainer:
     def __init__(self, agent, transitions, lr, epochs, batch_size):
@@ -73,12 +74,17 @@ class Pretrainer:
         """
         Split the dataset into training and testing sets.
         """
-        self.train_len = int(0.8 * self.dataset_length)
+        self.train_len = int(0.7 * self.dataset_length)
         self.test_len = int(0.2 * self.dataset_length)
+        self.eval_len = int(0.1 * self.dataset_length)
+        self.original_dataset = copy.deepcopy(self.dataset)
+        random.shuffle(self.dataset)
         train_indices = torch.arange(self.dataset_length)[: self.train_len]
-        test_indices = torch.arange(self.dataset_length)[self.test_len:]
+        eval_indices = torch.arange(self.dataset_length)[self.train_len : self.train_len + self.eval_len]
+        test_indices = torch.arange(self.dataset_length)[self.train_len + self.eval_len:]
         self.train_dataset = [self.dataset[i] for i in train_indices]
-        self.test_dataset = [self.dataset[i] for i in test_indices]
+        self.eval_dataset = [self.dataset[i] for i in eval_indices]
+        self.test_dataset = [self.original_dataset[i] for i in test_indices]
 
     def train_bc(self):
         """
@@ -86,12 +92,23 @@ class Pretrainer:
         """
         print("-----------------Pretraining Policy --------------")
         bc_loss = 0.
+        eval_loss = []
+
+        print("----------- First Validation ----------")
+        rnd_indices = torch.randperm(self.eval_len)[: self.batch_size]
+        s, a, r, ns, t = self.get_batch(self.eval_dataset, rnd_indices)
+        s = self._agent._state_preprocessor(s, train=True)
+        _, _, mean_a = self._agent.policy.act({"states": s, "taken_actions": a}, role="policy")
+        mean_a = mean_a["mean_actions"]
+        eval_loss.append(torch.mean((mean_a - a)**2).item() )
+
         for epoch in range(self.epochs):
             print(f'Epoch: {epoch}/{self.epochs}')
             iter_range = self.train_len // self.batch_size
             cumulative_mse = torch.zeros(self._agent.policy.num_actions, device=self._agent.device)
             cumulative_std = torch.zeros(self._agent.policy.num_actions, device=self._agent.device)
             cumulative_policy_loss = torch.zeros(1, device=self._agent.device)
+            
             for iter in range(iter_range):
                 # rnd_indices = torch.arange(iter * self.batch_size, (iter + 1) * self.batch_size, dtype=int)
                 rnd_indices = torch.randperm(self.train_len)[: self.batch_size]
@@ -118,7 +135,16 @@ class Pretrainer:
             self.log_mse.append(cumulative_mse / (iter + 1))
             self.log_policy_loss.append(epoch_loss)
 
+            print("----------- Validation ----------")
+            rnd_indices = torch.randperm(self.eval_len)[: self.batch_size]
+            s, a, r, ns, t = self.get_batch(self.eval_dataset, rnd_indices)
+            s = self._agent._state_preprocessor(s, train=not epoch)
+            _, _, mean_a = self._agent.policy.act({"states": s, "taken_actions": a}, role="policy")
+            mean_a = mean_a["mean_actions"]
+            eval_loss.append(torch.mean((mean_a - a)**2).item() )
+
         self.log_policy_loss = torch.tensor(self.log_policy_loss)
+        self.log_policy_loss_eval = torch.tensor(eval_loss)
         self.log_std = torch.stack(self.log_std)
         self.log_mse = torch.stack(self.log_mse)
         print(f'Terminal Loss: {self.log_policy_loss[-1]}')
@@ -144,3 +170,23 @@ class Pretrainer:
         self.test_policy_loss = torch.tensor(self.test_policy_loss)
         print(f'Test Mean Loss: {torch.mean(self.test_policy_loss)}')
         return 0
+    
+    def test_cloned(self):
+        """
+        Test the behavior cloning (BC) model.
+        """
+        self.test_policy_loss = []
+        bc_loss = 0.
+        iter_range = self.test_len
+        self.test_gt_actions = torch.zeros((7, iter_range))
+        self.test_bc_actions = torch.zeros((7, iter_range))
+
+        for iter in range(iter_range):
+            s, a, r, ns, t = self.get_batch(self.test_dataset, [iter])
+            s = self._agent._state_preprocessor(s)
+            r = r.squeeze()
+            t = t.squeeze()
+            _, log_prob, mean_a = self._agent.policy.act({"states": s, "taken_actions": a}, role="policy")
+            mean_a = mean_a["mean_actions"]
+            self.test_gt_actions[:, iter] = a
+            self.test_bc_actions[:, iter] = mean_a.detach()
