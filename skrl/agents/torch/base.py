@@ -311,6 +311,10 @@ class Agent:
             self.tracking_data["Reward / Instantaneous reward (max)"].append(torch.max(rewards).item())
             self.tracking_data["Reward / Instantaneous reward (min)"].append(torch.min(rewards).item())
             self.tracking_data["Reward / Instantaneous reward (mean)"].append(torch.mean(rewards).item())
+            
+            if "success" in infos.keys() and "success_ratio" in infos.keys():
+                self.tracking_data["Episode / successful episodes"].append((infos["success"]).item())
+                self.tracking_data["Episode / successful episodes ratio"].append((infos["success_ratio"]).item())
 
             if len(self._track_rewards):
                 track_rewards = np.array(self._track_rewards)
