@@ -66,6 +66,11 @@ class PretrainerV2:
             dataset=self.train_expert_dataset, batch_size=batch_size, shuffle=True)
         self.test_loader = torch.utils.data.DataLoader(
             dataset=self.test_expert_dataset, batch_size=batch_size, shuffle=True)
+        
+        # a_t = torch.stack(expert_dataset.actions)
+        # expert_log_std = torch.log(torch.std(a_t, dim=0) + 1e-12)
+        # with torch.no_grad():
+        #     self._agent.policy.log_std_parameter.copy_(expert_log_std)
 
     def train_bc(self):
         
@@ -82,8 +87,8 @@ class PretrainerV2:
                 state = self._agent._state_preprocessor(state, train=True)
                 self.optimizer.zero_grad()
                 action, _, mean_a = self._agent.policy.act({"states": state}, role="policy")
-                # action_prediction = mean_a["mean_actions"]
-                action_prediction = action
+                action_prediction = mean_a["mean_actions"]
+                # action_prediction = action
 
                 loss = criterion(action_prediction, action_target)
                 loss.backward()
@@ -109,8 +114,8 @@ class PretrainerV2:
 
                     self.optimizer.zero_grad()
                     action, _, mean_a = self._agent.policy.act({"states": state}, role="policy")
-                    # action_prediction = mean_a["mean_actions"]
-                    action_prediction = action
+                    action_prediction = mean_a["mean_actions"]
+                    # action_prediction = action
 
 
                     test_loss = criterion(action_prediction, action_target)
