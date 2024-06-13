@@ -63,6 +63,7 @@ class Agent:
         self.tracking_data = collections.defaultdict(list)
         self.write_interval = self.cfg.get("experiment", {}).get("write_interval", 1000)
 
+        self._track_success = collections.deque(maxlen=1000)
         self._track_rewards = collections.deque(maxlen=100)
         self._track_timesteps = collections.deque(maxlen=100)
         self._cumulative_rewards = None
@@ -302,7 +303,7 @@ class Agent:
                 # storage cumulative rewards and timesteps
                 self._track_rewards.extend(self._cumulative_rewards[finished_episodes][:, 0].reshape(-1).tolist())
                 self._track_timesteps.extend(self._cumulative_timesteps[finished_episodes][:, 0].reshape(-1).tolist())
-
+                self._track_success.extend(infos["success"][finished_episodes][:, 0].reshape(-1).tolist())
                 # reset the cumulative rewards and timesteps
                 self._cumulative_rewards[finished_episodes] = 0
                 self._cumulative_timesteps[finished_episodes] = 0
@@ -311,10 +312,6 @@ class Agent:
             self.tracking_data["Reward / Instantaneous reward (max)"].append(torch.max(rewards).item())
             self.tracking_data["Reward / Instantaneous reward (min)"].append(torch.min(rewards).item())
             self.tracking_data["Reward / Instantaneous reward (mean)"].append(torch.mean(rewards).item())
-            
-            if "success" in infos.keys() and "success_ratio" in infos.keys():
-                self.tracking_data["Episode / successful episodes"].append((infos["success"]).item())
-                self.tracking_data["Episode / successful episodes ratio"].append((infos["success_ratio"]).item())
 
             if len(self._track_rewards):
                 track_rewards = np.array(self._track_rewards)
@@ -327,6 +324,9 @@ class Agent:
                 self.tracking_data["Episode / Total timesteps (max)"].append(np.max(track_timesteps))
                 self.tracking_data["Episode / Total timesteps (min)"].append(np.min(track_timesteps))
                 self.tracking_data["Episode / Total timesteps (mean)"].append(np.mean(track_timesteps))
+
+                if "success" in infos.keys():
+                    self.tracking_data["Episode / Success "].append(np.count_nonzero(self._track_success) / len(self._track_success) * 100 )  # ratio
 
     def set_mode(self, mode: str) -> None:
         """Set the model mode (training or evaluation)
