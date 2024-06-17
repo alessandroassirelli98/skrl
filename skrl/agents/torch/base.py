@@ -68,6 +68,7 @@ class Agent:
         self._track_timesteps = collections.deque(maxlen=100)
         self._cumulative_rewards = None
         self._cumulative_timesteps = None
+        self._cumulative_rewards_terms = None
 
         self.training = True
 
@@ -292,14 +293,24 @@ class Agent:
             if self._cumulative_rewards is None:
                 self._cumulative_rewards = torch.zeros_like(rewards, dtype=torch.float32)
                 self._cumulative_timesteps = torch.zeros_like(rewards, dtype=torch.int32)
+            
+            if self._cumulative_rewards_terms is None:
+                self._cumulative_rewards_terms = {}
+                self._track_rewards_terms = {}
+                for t in infos["rew_terms"]:
+                    self._cumulative_rewards_terms[t] = torch.zeros_like(rewards, dtype=torch.float32)
+                    self._track_rewards_terms[t] = collections.deque(maxlen=100)
 
             self._cumulative_rewards.add_(rewards)
             self._cumulative_timesteps.add_(1)
+            for t in infos["rew_terms"]:
+                self._cumulative_rewards_terms[t].add_(infos["rew_terms"][t].unsqueeze(1))
 
             # check ended episodes
             finished_episodes = (terminated + truncated).nonzero(as_tuple=False)
             if finished_episodes.numel():
-
+                for t in infos["rew_terms"]:
+                    self._track_rewards_terms[t].extend(self._cumulative_rewards_terms[t][finished_episodes][:, 0].reshape(-1).tolist())
                 # storage cumulative rewards and timesteps
                 self._track_rewards.extend(self._cumulative_rewards[finished_episodes][:, 0].reshape(-1).tolist())
                 self._track_timesteps.extend(self._cumulative_timesteps[finished_episodes][:, 0].reshape(-1).tolist())
@@ -307,11 +318,15 @@ class Agent:
                 # reset the cumulative rewards and timesteps
                 self._cumulative_rewards[finished_episodes] = 0
                 self._cumulative_timesteps[finished_episodes] = 0
+                for t in infos["rew_terms"]:
+                    self._cumulative_rewards_terms[t][finished_episodes] = 0
 
             # record data
             self.tracking_data["Reward / Instantaneous reward (max)"].append(torch.max(rewards).item())
             self.tracking_data["Reward / Instantaneous reward (min)"].append(torch.min(rewards).item())
             self.tracking_data["Reward / Instantaneous reward (mean)"].append(torch.mean(rewards).item())
+            for t in infos["rew_terms"]:
+                self.tracking_data[f'Reward Terms Scaled / Instananeous {t} mean'].append(np.mean(infos["rew_terms"][t].unsqueeze(1)) * infos["rew_weights"][t])
 
             if len(self._track_rewards):
                 track_rewards = np.array(self._track_rewards)
@@ -327,6 +342,9 @@ class Agent:
 
                 if "success" in infos.keys():
                     self.tracking_data["Episode / Success "].append(np.count_nonzero(self._track_success) / len(self._track_success) * 100 )  # ratio
+                for t in infos["rew_terms"]:
+                    self.tracking_data[f'Reward Terms / {t} mean'].append(np.mean(self._track_rewards_terms[t]))
+                    self.tracking_data[f'Reward Terms Scaled / {t} mean'].append(np.mean(self._track_rewards_terms[t]) * infos["rew_weights"][t])
 
     def set_mode(self, mode: str) -> None:
         """Set the model mode (training or evaluation)
