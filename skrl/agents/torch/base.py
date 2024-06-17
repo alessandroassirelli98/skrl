@@ -325,8 +325,9 @@ class Agent:
             self.tracking_data["Reward / Instantaneous reward (max)"].append(torch.max(rewards).item())
             self.tracking_data["Reward / Instantaneous reward (min)"].append(torch.min(rewards).item())
             self.tracking_data["Reward / Instantaneous reward (mean)"].append(torch.mean(rewards).item())
-            for t in infos["rew_terms"]:
-                self.tracking_data[f'Reward Terms Scaled / Instananeous {t} mean'].append(np.mean(infos["rew_terms"][t].unsqueeze(1)) * infos["rew_weights"][t])
+            # FIXIT
+            # for t in infos["rew_terms"]:
+            #     self.tracking_data[f'Reward Terms Scaled / Instananeous {t} mean'].append(torch.mean(infos["rew_terms"][t].unsqueeze(1)).item() * infos["rew_weights"][t])
 
             if len(self._track_rewards):
                 track_rewards = np.array(self._track_rewards)
