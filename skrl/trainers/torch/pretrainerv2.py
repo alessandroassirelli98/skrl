@@ -84,11 +84,11 @@ class PretrainerV2:
             self._agent.policy.train()
 
             for batch_idx, (state, action_target) in enumerate(self.train_loader):
-                state = self._agent._state_preprocessor(state, train=True)
+                state = self._agent._state_preprocessor(state, train = not batch_idx)
                 self.optimizer.zero_grad()
                 action, _, mean_a = self._agent.policy.act({"states": state}, role="policy")
-                action_prediction = mean_a["mean_actions"]
-                # action_prediction = action
+                # action_prediction = mean_a["mean_actions"]
+                action_prediction = action
 
                 loss = criterion(action_prediction, action_target)
                 loss.backward()
@@ -114,8 +114,8 @@ class PretrainerV2:
 
                     self.optimizer.zero_grad()
                     action, _, mean_a = self._agent.policy.act({"states": state}, role="policy")
-                    action_prediction = mean_a["mean_actions"]
-                    # action_prediction = action
+                    # action_prediction = mean_a["mean_actions"]
+                    action_prediction = action
 
 
                     test_loss = criterion(action_prediction, action_target)
