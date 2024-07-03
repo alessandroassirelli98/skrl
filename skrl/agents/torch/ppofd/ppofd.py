@@ -488,8 +488,8 @@ class PPOFD(Agent):
                 if self._lambda_0 > 0.:
                     ds, da, _, _, _ = self._demonstration_memory.sample(names=self._demonstration_tensors_names, batch_size=len(sampled_states))[0]
                     ds = self._state_preprocessor(ds)
-                    with torch.no_grad():
-                        _, demo_log_prob, out = self.policy.act({"states":ds, "taken_actions": da}, role="policy")
+                    # with torch.no_grad():
+                    _, demo_log_prob, out = self.policy.act({"states":ds, "taken_actions": da}, role="policy")
                 
                     # compute policy loss
                     w = self._lambda_0 * self._lambda_1 ** timestep
