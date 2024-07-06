@@ -319,9 +319,9 @@ class Agent:
                 if "success" in infos:
                     self._track_success.extend(infos["success"][finished_episodes][:, 0].reshape(-1).tolist())
                     if "success_pos" in infos:
-                        self._track_success_pos.extend(infos["successPos"][finished_episodes][:, 0].reshape(-1).tolist())
+                        self._track_success_pos.extend(infos["success_pos"][finished_episodes][:, 0].reshape(-1).tolist())
                     if "success_rot" in infos:
-                        self._track_success_rot.extend(infos["successRot"][finished_episodes][:, 0].reshape(-1).tolist())
+                        self._track_success_rot.extend(infos["success_rot"][finished_episodes][:, 0].reshape(-1).tolist())
 
                 # reset the cumulative rewards and timesteps
                 self._cumulative_rewards[finished_episodes] = 0
