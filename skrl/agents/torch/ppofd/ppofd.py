@@ -196,15 +196,14 @@ class PPOFD(Agent):
 
         # create tensors in memory
         if self.memory is not None:
-            for memory in self.memory:
-                memory.create_tensor(name="states", size=self.observation_space, dtype=torch.float32)
-                memory.create_tensor(name="actions", size=self.action_space, dtype=torch.float32)
-                memory.create_tensor(name="rewards", size=1, dtype=torch.float32)
-                memory.create_tensor(name="terminated", size=1, dtype=torch.bool)
-                memory.create_tensor(name="log_prob", size=1, dtype=torch.float32)
-                memory.create_tensor(name="values", size=1, dtype=torch.float32)
-                memory.create_tensor(name="returns", size=1, dtype=torch.float32)
-                memory.create_tensor(name="advantages", size=1, dtype=torch.float32)
+            self.memory.create_tensor(name="states", size=self.observation_space, dtype=torch.float32)
+            self.memory.create_tensor(name="actions", size=self.action_space, dtype=torch.float32)
+            self.memory.create_tensor(name="rewards", size=1, dtype=torch.float32)
+            self.memory.create_tensor(name="terminated", size=1, dtype=torch.bool)
+            self.memory.create_tensor(name="log_prob", size=1, dtype=torch.float32)
+            self.memory.create_tensor(name="values", size=1, dtype=torch.float32)
+            self.memory.create_tensor(name="returns", size=1, dtype=torch.float32)
+            self.memory.create_tensor(name="advantages", size=1, dtype=torch.float32)
 
             # tensors sampled during training
             self._tensors_names = ["states", "actions", "log_prob", "values", "returns", "advantages"]
