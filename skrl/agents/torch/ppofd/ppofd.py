@@ -82,7 +82,6 @@ class PPOFD(Agent):
                  models: Mapping[str, Model],
                  memory: Optional[Union[Memory, Tuple[Memory]]] = None,
                  demonstration_memory: Memory = None,
-                 sampling_demo_memory: Memory = None,
                  observation_space: Optional[Union[int, Tuple[int], gym.Space, gymnasium.Space]] = None,
                  action_space: Optional[Union[int, Tuple[int], gym.Space, gymnasium.Space]] = None,
                  device: Optional[Union[str, torch.device]] = None,
@@ -120,7 +119,6 @@ class PPOFD(Agent):
 
         # memory to hold demonstrations
         self._demonstration_memory = demonstration_memory
-        self.sampling_demo_memory = sampling_demo_memory
         self._old_policy = None
 
         # models
@@ -198,7 +196,7 @@ class PPOFD(Agent):
 
         # create tensors in memory
         if self.memory is not None:
-            for memory in [self.memory, self.sampling_demo_memory]:
+            for memory in self.memory:
                 memory.create_tensor(name="states", size=self.observation_space, dtype=torch.float32)
                 memory.create_tensor(name="actions", size=self.action_space, dtype=torch.float32)
                 memory.create_tensor(name="rewards", size=1, dtype=torch.float32)

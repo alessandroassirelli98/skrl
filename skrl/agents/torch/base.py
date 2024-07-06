@@ -64,6 +64,8 @@ class Agent:
         self.write_interval = self.cfg.get("experiment", {}).get("write_interval", 1000)
 
         self._track_success = collections.deque(maxlen=1000)
+        self._track_success_pos = collections.deque(maxlen=1000)
+        self._track_success_rot = collections.deque(maxlen=1000)
         self._track_rewards = collections.deque(maxlen=100)
         self._track_timesteps = collections.deque(maxlen=100)
         self._cumulative_rewards = None
@@ -297,29 +299,37 @@ class Agent:
             if self._cumulative_rewards_terms is None:
                 self._cumulative_rewards_terms = {}
                 self._track_rewards_terms = {}
-                for t in infos["rew_terms"]:
-                    self._cumulative_rewards_terms[t] = torch.zeros_like(rewards, dtype=torch.float32)
-                    self._track_rewards_terms[t] = collections.deque(maxlen=100)
+                if "rew_terms" in infos:
+                    for t in infos["rew_terms"]:
+                        self._cumulative_rewards_terms[t] = torch.zeros_like(rewards, dtype=torch.float32)
+                        self._track_rewards_terms[t] = collections.deque(maxlen=100)
 
             self._cumulative_rewards.add_(rewards)
-            self._cumulative_timesteps.add_(1)
-            for t in infos["rew_terms"]:
-                self._cumulative_rewards_terms[t].add_(infos["rew_terms"][t].unsqueeze(1))
+            if "rew_terms" in infos:
+                self._cumulative_timesteps.add_(1)
+                for t in infos["rew_terms"]:
+                    self._cumulative_rewards_terms[t].add_(infos["rew_terms"][t].unsqueeze(1))
 
             # check ended episodes
             finished_episodes = (terminated + truncated).nonzero(as_tuple=False)
             if finished_episodes.numel():
-                for t in infos["rew_terms"]:
-                    self._track_rewards_terms[t].extend(self._cumulative_rewards_terms[t][finished_episodes][:, 0].reshape(-1).tolist())
                 # storage cumulative rewards and timesteps
                 self._track_rewards.extend(self._cumulative_rewards[finished_episodes][:, 0].reshape(-1).tolist())
                 self._track_timesteps.extend(self._cumulative_timesteps[finished_episodes][:, 0].reshape(-1).tolist())
-                self._track_success.extend(infos["success"][finished_episodes][:, 0].reshape(-1).tolist())
+                if "success" in infos:
+                    self._track_success.extend(infos["success"][finished_episodes][:, 0].reshape(-1).tolist())
+                    if "success_pos" in infos:
+                        self._track_success_pos.extend(infos["successPos"][finished_episodes][:, 0].reshape(-1).tolist())
+                    if "success_rot" in infos:
+                        self._track_success_rot.extend(infos["successRot"][finished_episodes][:, 0].reshape(-1).tolist())
+
                 # reset the cumulative rewards and timesteps
                 self._cumulative_rewards[finished_episodes] = 0
                 self._cumulative_timesteps[finished_episodes] = 0
-                for t in infos["rew_terms"]:
-                    self._cumulative_rewards_terms[t][finished_episodes] = 0
+                if "rew_terms" in infos:
+                    for t in infos["rew_terms"]:
+                        self._track_rewards_terms[t].extend(self._cumulative_rewards_terms[t][finished_episodes][:, 0].reshape(-1).tolist())
+                        self._cumulative_rewards_terms[t][finished_episodes] = 0
 
             # record data
             self.tracking_data["Reward / Instantaneous reward (max)"].append(torch.max(rewards).item())
@@ -343,6 +353,11 @@ class Agent:
 
                 if "success" in infos.keys():
                     self.tracking_data["Episode / Success "].append(np.count_nonzero(self._track_success) / len(self._track_success) * 100 )  # ratio
+                    if "success_pos" in infos.keys():
+                        self.tracking_data["Episode / SuccessPos "].append(np.count_nonzero(self._track_success_pos) / len(self._track_success_pos) * 100 )  # ratio
+                    if "success_rot" in infos.keys():
+                        self.tracking_data["Episode / SuccessRot "].append(np.count_nonzero(self._track_success_rot) / len(self._track_success_rot) * 100 )  # ratio
+                
                 for t in infos["rew_terms"]:
                     self.tracking_data[f'Reward Terms / {t} mean'].append(np.mean(self._track_rewards_terms[t]))
                     self.tracking_data[f'Reward Terms Scaled / {t} mean'].append(np.mean(self._track_rewards_terms[t]) * infos["rew_weights"][t])
