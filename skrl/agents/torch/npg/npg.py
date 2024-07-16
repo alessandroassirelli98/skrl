@@ -5,6 +5,7 @@ import itertools
 import gym
 import gymnasium
 
+import numpy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -432,11 +433,6 @@ class NPG(Agent):
                     cumulative_entropy_loss += entropy_loss.item()
 
             # update learning rate
-            if self._learning_rate_scheduler:
-                if isinstance(self.scheduler, KLAdaptiveLR):
-                    self.scheduler.step(torch.tensor(kl_divergences).mean())
-                else:
-                    self.scheduler.step()
 
         # record data
         # self.track_data("Loss / Policy loss", cumulative_policy_loss / (self._learning_epochs * self._mini_batches))
