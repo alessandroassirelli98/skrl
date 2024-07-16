@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 # import the skrl components to build the RL system
-from skrl.agents.torch.ppo import PPO, PPO_DEFAULT_CONFIG
+from skrl.agents.torch.npg import NPG, NPG_DEFAULT_CONFIG
 from skrl.envs.wrappers.torch import wrap_env
 from skrl.memories.torch import RandomMemory
 from skrl.models.torch import DeterministicMixin, GaussianMixin, Model
@@ -54,11 +54,11 @@ class Value(DeterministicMixin, Model):
 # load and wrap the gymnasium environment.
 # note: the environment version may change depending on the gymnasium version
 try:
-    env = gym.vector.make("Pendulum-v1", num_envs=4, asynchronous=False)
+    env = gym.vector.make("Pendulum-v1", num_envs=1, asynchronous=False)
 except (gym.error.DeprecatedEnv, gym.error.VersionNotFound) as e:
     env_id = [spec for spec in gym.envs.registry if spec.startswith("Pendulum-v")][0]
     print("Pendulum-v1 not found. Trying {}".format(env_id))
-    env = gym.vector.make(env_id, num_envs=4, asynchronous=False)
+    env = gym.vector.make(env_id, num_envs=1, asynchronous=False)
 env = wrap_env(env)
 
 device = env.device
@@ -78,7 +78,7 @@ models["value"] = Value(env.observation_space, env.action_space, device)
 
 # configure and instantiate the agent (visit its documentation to see all the options)
 # https://skrl.readthedocs.io/en/latest/api/agents/ppo.html#configuration-and-hyperparameters
-cfg = PPO_DEFAULT_CONFIG.copy()
+cfg = NPG_DEFAULT_CONFIG.copy()
 cfg["rollouts"] = 1024  # memory_size
 cfg["learning_epochs"] = 10
 cfg["mini_batches"] = 32
@@ -103,7 +103,7 @@ cfg["experiment"]["write_interval"] = 500
 cfg["experiment"]["checkpoint_interval"] = 5000
 cfg["experiment"]["directory"] = "runs/torch/Pendulum"
 
-agent = PPO(models=models,
+agent = NPG(models=models,
             memory=memory,
             cfg=cfg,
             observation_space=env.observation_space,

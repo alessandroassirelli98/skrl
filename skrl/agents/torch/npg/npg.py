@@ -14,7 +14,6 @@ from skrl.memories.torch import Memory
 from skrl.models.torch import Model
 from skrl.resources.schedulers.torch import KLAdaptiveLR
 
-
 # [start-config-dict-torch]
 NPG_DEFAULT_CONFIG = {
     "rollouts": 16,                 # number of rollouts before updating
@@ -36,8 +35,7 @@ NPG_DEFAULT_CONFIG = {
     "random_timesteps": 0,          # random exploration steps
     "learning_starts": 0,           # learning starts after this many steps
 
-    "grad_norm_clip": 0.5,              # clipping coefficient for the norm of the gradients
-    "ratio_clip": 0.2,                  # clipping coefficient for computing the clipped surrogate objective
+    "n_step_size": 0.05,                  # clipping coefficient for computing the clipped surrogate objective
     "value_clip": 0.2,                  # clipping coefficient for computing the value loss (if clip_predicted_values is True)
     "clip_predicted_values": False,     # clip predicted values during value loss computation
 
@@ -118,7 +116,7 @@ class NPG(Agent):
         self._rollout = 0
 
         self._grad_norm_clip = self.cfg["grad_norm_clip"]
-        self._ratio_clip = self.cfg["ratio_clip"]
+        self.n_step_size = cfg["n_step_size"]
         self._value_clip = self.cfg["value_clip"]
         self._clip_predicted_values = self.cfg["clip_predicted_values"]
 
@@ -143,16 +141,13 @@ class NPG(Agent):
         self._time_limit_bootstrap = self.cfg["time_limit_bootstrap"]
 
         # set up optimizer and learning rate scheduler
-        if self.policy is not None and self.value is not None:
-            if self.policy is self.value:
-                self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=self._learning_rate)
-            else:
-                self.optimizer = torch.optim.Adam(itertools.chain(self.policy.parameters(), self.value.parameters()),
-                                                  lr=self._learning_rate)
-            if self._learning_rate_scheduler is not None:
-                self.scheduler = self._learning_rate_scheduler(self.optimizer, **self.cfg["learning_rate_scheduler_kwargs"])
+        self.optimizer = torch.optim.Adam(self.value.parameters(), lr=self._learning_rate)
+        self.checkpoint_modules["optimizer"] = self.optimizer
 
-            self.checkpoint_modules["optimizer"] = self.optimizer
+        self.policy.trainable_params = list(self.policy.parameters()) + [self.policy.log_std_parameter]
+        self.policy.param_shapes = [p.cpu().data.numpy().shape for p in self.policy.trainable_params]
+        self.policy.param_sizes = [p.cpu().data.numpy().size for p in self.policy.trainable_params]
+        self.d = sum(self.policy.param_sizes)
 
         # set up preprocessors
         if self._state_preprocessor:
@@ -368,7 +363,6 @@ class NPG(Agent):
         # sample mini-batches from memory
         sampled_batches = self.memory.sample_all(names=self._tensors_names, mini_batches=self._mini_batches)
 
-        cumulative_policy_loss = 0
         cumulative_entropy_loss = 0
         cumulative_value_loss = 0
 
@@ -401,13 +395,19 @@ class NPG(Agent):
 
                 # compute policy loss
                 ratio = torch.exp(next_log_prob - sampled_log_prob)
-                surrogate = sampled_advantages * ratio
-                ratio_1 = torch.exp(next_log_prob - sampled_log_prob)
-                surrogate_1 = sampled_advantages * ratio_1
-                vpg_grad = torch.autograd.grad(surrogate_1, self.policy.trainable_params)
-                vpg_grad = torch.cat([g.contiguous().view(-1).data.numpy() for g in vpg_grad])
+                surrogate = torch.mean(sampled_advantages * ratio)
+                vpg_grad = torch.autograd.grad(surrogate, self.policy.trainable_params, retain_graph=True)
+                g = torch.cat([g.contiguous().view(-1) for g in vpg_grad])
 
-                policy_loss = -torch.min(surrogate, surrogate_clipped).mean()
+                kl_divergence = ((torch.exp(ratio) - 1) - ratio).mean()
+                hvp = self.build_Hvp_eval([kl_divergence], regu_coef=1e-4)
+                npg_grad = self.cg_solve(hvp, g, cg_iters=10)
+
+                alpha = torch.sqrt(torch.abs(self.n_step_size / (torch.dot(g.T, npg_grad) + 1e-20)))
+
+                curr_params = self.get_policy_param_values()
+                new_params = curr_params + alpha * npg_grad
+                self.set_policy_param_values(new_params, set_new=True)
 
                 # compute value loss
                 predicted_values, _, _ = self.value.act({"states": sampled_states}, role="value")
@@ -420,16 +420,13 @@ class NPG(Agent):
 
                 # optimization step
                 self.optimizer.zero_grad()
-                (policy_loss + entropy_loss + value_loss).backward()
+                (value_loss).backward()
                 if self._grad_norm_clip > 0:
                     if self.policy is self.value:
-                        nn.utils.clip_grad_norm_(self.policy.parameters(), self._grad_norm_clip)
-                    else:
-                        nn.utils.clip_grad_norm_(itertools.chain(self.policy.parameters(), self.value.parameters()), self._grad_norm_clip)
+                        nn.utils.clip_grad_norm_(self.value.parameters(), self._grad_norm_clip)
                 self.optimizer.step()
 
                 # update cumulative losses
-                cumulative_policy_loss += policy_loss.item()
                 cumulative_value_loss += value_loss.item()
                 if self._entropy_loss_scale:
                     cumulative_entropy_loss += entropy_loss.item()
@@ -442,7 +439,7 @@ class NPG(Agent):
                     self.scheduler.step()
 
         # record data
-        self.track_data("Loss / Policy loss", cumulative_policy_loss / (self._learning_epochs * self._mini_batches))
+        # self.track_data("Loss / Policy loss", cumulative_policy_loss / (self._learning_epochs * self._mini_batches))
         self.track_data("Loss / Value loss", cumulative_value_loss / (self._learning_epochs * self._mini_batches))
         if self._entropy_loss_scale:
             self.track_data("Loss / Entropy loss", cumulative_entropy_loss / (self._learning_epochs * self._mini_batches))
@@ -451,3 +448,58 @@ class NPG(Agent):
 
         if self._learning_rate_scheduler:
             self.track_data("Learning / Learning rate", self.scheduler.get_last_lr()[0])
+
+    def cg_solve(self, f_Ax, b, x_0=None, cg_iters=10, residual_tol=1e-10):
+        x = torch.zeros_like(b) #if x_0 is None else x_0
+        r = b.clone() #if x_0 is None else b-f_Ax(x_0)
+        p = r.clone()
+        rdotr = r.dot(r)
+
+        for i in range(cg_iters):
+            z = f_Ax(p)
+            v = rdotr / p.dot(z)
+            x += v * p
+            r -= v * z
+            newrdotr = r.dot(r)
+            mu = newrdotr / rdotr
+            p = r + mu * p
+
+            rdotr = newrdotr
+            if rdotr < residual_tol:
+                break
+
+        return x
+
+    def HVP(self, kl_divergence, vector, regu_coef=1e-4):
+        grad_fo = torch.autograd.grad(kl_divergence, self.policy.trainable_params, create_graph=True, retain_graph=True)
+        flat_grad = torch.cat([g.contiguous().view(-1) for g in grad_fo])
+        h = torch.sum(flat_grad* (vector))
+        hvp = torch.autograd.grad(h, self.policy.trainable_params, retain_graph=True)
+        hvp_flat = torch.cat([g.contiguous().view(-1) for g in hvp])
+        return hvp_flat + regu_coef*vector
+    
+    def build_Hvp_eval(self, inputs, regu_coef=1e-4):
+        def eval(v):
+            full_inp = inputs + [v] + [regu_coef]
+            Hvp = self.HVP(*full_inp)
+            return Hvp
+        return eval
+    
+    def get_policy_param_values(self):
+        params = torch.cat([p.contiguous().view(-1)
+                                 for p in self.policy.trainable_params])
+        return params.clone()
+    
+    def set_policy_param_values(self, new_params, set_new=True):
+        if set_new:
+            current_idx = 0
+            for idx, param in enumerate(self.policy.trainable_params):
+                vals = new_params[current_idx:current_idx + self.policy.param_sizes[idx]]
+                vals = vals.reshape(self.policy.param_shapes[idx])
+                param.data = vals
+                current_idx += self.policy.param_sizes[idx]
+            # clip std at minimum value
+            self.policy.trainable_params[-1].data = \
+                torch.clamp(self.policy.trainable_params[-1], self.policy._log_std_min).data
+            # update log_std_val for sampling
+            # self.log_std_val = np.float64(self.log_std.data.numpy().ravel())
