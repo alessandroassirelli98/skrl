@@ -495,7 +495,7 @@ class NPG(Agent):
                 param.data = vals
                 current_idx += self.policy.param_sizes[idx]
             # clip std at minimum value
-            self.policy.trainable_params[-1].data = \
-                torch.clamp(self.policy.trainable_params[-1], self.policy._log_std_min).data
+            # self.policy.trainable_params[-1].data = \
+            #     torch.clamp(self.policy.trainable_params[-1], self.policy._log_std_min).data
             # update log_std_val for sampling
             # self.log_std_val = np.float64(self.log_std.data.numpy().ravel())
