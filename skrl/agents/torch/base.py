@@ -64,6 +64,7 @@ class Agent:
         self.write_interval = self.cfg.get("experiment", {}).get("write_interval", 1000)
 
         self._track_success = collections.deque(maxlen=1000)
+        self._track_success_w_trigger = collections.deque(maxlen=1000)
         self._track_success_pos = collections.deque(maxlen=1000)
         self._track_success_rot = collections.deque(maxlen=1000)
         self._track_rewards = collections.deque(maxlen=100)
@@ -322,6 +323,8 @@ class Agent:
                         self._track_success_pos.extend(infos["success_pos"][finished_episodes][:, 0].reshape(-1).tolist())
                     if "success_rot" in infos:
                         self._track_success_rot.extend(infos["success_rot"][finished_episodes][:, 0].reshape(-1).tolist())
+                    if "success_w_trigger" in infos:
+                        self._track_success_w_trigger.extend(infos["success_w_trigger"][finished_episodes][:, 0].reshape(-1).tolist())
 
                 # reset the cumulative rewards and timesteps
                 self._cumulative_rewards[finished_episodes] = 0
@@ -356,7 +359,9 @@ class Agent:
                     if "success_pos" in infos.keys():
                         self.tracking_data["Episode / SuccessPos "].append(np.count_nonzero(self._track_success_pos) / len(self._track_success_pos) * 100 )  # ratio
                     if "success_rot" in infos.keys():
-                        self.tracking_data["Episode / SuccessRot "].append(np.count_nonzero(self._track_success_rot) / len(self._track_success_rot) * 100 )  # ratio
+                        self.tracking_data["Episode / SuccessRot "].append(np.count_nonzero(self._track_success_rot) / len(self._track_success_rot) * 100 )
+                    if "success_w_trigger" in infos.keys():
+                        self.tracking_data["Episode / SuccessWTrigger "].append(np.count_nonzero(self._track_success_w_trigger) / len(self._track_success_w_trigger) * 100 )  # ratio
                 
                 for t in infos["rew_terms"]:
                     self.tracking_data[f'Reward Terms / {t} mean'].append(np.mean(self._track_rewards_terms[t]))
