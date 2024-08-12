@@ -363,9 +363,10 @@ class Agent:
                     if "success_w_trigger" in infos.keys():
                         self.tracking_data["Episode / SuccessWTrigger "].append(np.count_nonzero(self._track_success_w_trigger) / len(self._track_success_w_trigger) * 100 )  # ratio
                 
-                for t in infos["rew_terms"]:
-                    self.tracking_data[f'Reward Terms / {t} mean'].append(np.mean(self._track_rewards_terms[t]))
-                    self.tracking_data[f'Reward Terms Scaled / {t} mean'].append(np.mean(self._track_rewards_terms[t]) * infos["rew_weights"][t])
+                if "rew_terms" in infos:
+                    for t in infos["rew_terms"]:
+                        self.tracking_data[f'Reward Terms / {t} mean'].append(np.mean(self._track_rewards_terms[t]))
+                        self.tracking_data[f'Reward Terms Scaled / {t} mean'].append(np.mean(self._track_rewards_terms[t]) * infos["rew_weights"][t])
 
     def set_mode(self, mode: str) -> None:
         """Set the model mode (training or evaluation)
